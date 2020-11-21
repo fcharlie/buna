@@ -294,12 +294,138 @@ func (f *File) importedSymbols(ft *FunctionTable) error {
 	return nil
 }
 
-func (f *File) importedDelaySymbols(ft *FunctionTable) error {
+// ImportDelayDirectory delay
+type ImportDelayDirectory struct {
+	Attributes                 uint32
+	DllNameRVA                 uint32
+	ModuleHandleRVA            uint32
+	ImportAddressTableRVA      uint32
+	ImportNameTableRVA         uint32
+	BoundImportAddressTableRVA uint32
+	UnloadInformationTableRVA  uint32
+	TimeDateStamp              uint32
 
-	return nil
+	DllName string
 }
 
-func (f *File) exportedSymbols(ft *FunctionTable) error {
+func (f *File) importedDelaySymbols(ft *FunctionTable) error {
+	if f.OptionalHeader == nil {
+		return nil
+	}
+
+	pe64 := f.FileHeader.SizeOfOptionalHeader == OptionalHeader64Size
+
+	// grab the number of data directory entries
+	var ddlen uint32
+	if pe64 {
+		ddlen = f.OptionalHeader.(*OptionalHeader64).NumberOfRvaAndSizes
+	} else {
+		ddlen = f.OptionalHeader.(*OptionalHeader32).NumberOfRvaAndSizes
+	}
+
+	// check that the length of data directory entries is large
+	// enough to include the imports directory.
+	if ddlen < IMAGE_DIRECTORY_ENTRY_IMPORT+1 {
+		return nil
+	}
+
+	// grab the import data directory entry
+	var idd DataDirectory
+	if pe64 {
+		idd = f.OptionalHeader.(*OptionalHeader64).DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT]
+	} else {
+		idd = f.OptionalHeader.(*OptionalHeader32).DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT]
+	}
+
+	// figure out which section contains the import directory table
+	var ds *Section
+	ds = nil
+	for _, s := range f.Sections {
+		if s.VirtualAddress <= idd.VirtualAddress && idd.VirtualAddress < s.VirtualAddress+s.VirtualSize {
+			ds = s
+			break
+		}
+	}
+
+	// didn't find a section, so no import libraries were found
+	if ds == nil {
+		return nil
+	}
+
+	sdata, err := ds.Data()
+	if err != nil {
+		return nil
+	}
+
+	// seek to the virtual address specified in the import data directory
+	d := sdata[idd.VirtualAddress-ds.VirtualAddress:]
+
+	// start decoding the import directory
+	var ida []ImportDelayDirectory
+	for len(d) >= 32 {
+		var dt ImportDelayDirectory
+		dt.Attributes = binary.LittleEndian.Uint32(d[0:4])
+		dt.DllNameRVA = binary.LittleEndian.Uint32(d[4:8])
+		dt.ModuleHandleRVA = binary.LittleEndian.Uint32(d[8:12])
+		dt.ImportAddressTableRVA = binary.LittleEndian.Uint32(d[12:16])
+		dt.ImportNameTableRVA = binary.LittleEndian.Uint32(d[16:20])
+		dt.BoundImportAddressTableRVA = binary.LittleEndian.Uint32(d[20:24])
+		dt.UnloadInformationTableRVA = binary.LittleEndian.Uint32(d[24:28])
+		dt.TimeDateStamp = binary.LittleEndian.Uint32(d[28:32])
+		d = d[32:]
+		if dt.ImportAddressTableRVA == 0 {
+			break
+		}
+		ida = append(ida, dt)
+	}
+	// TODO(brainman): this needs to be rewritten
+	//  ds.Data() returns contents of section containing import table. Why store in variable called "names"?
+	//  Why we are retrieving it second time? We already have it in "d", and it is not modified anywhere.
+	//  getString does not extracts a string from symbol string table (as getString doco says).
+	//  Why ds.Data() called again and again in the loop?
+	//  Needs test before rewrite.
+	for _, dt := range ida {
+		dt.DllName, _ = getString(sdata, int(dt.DllNameRVA-ds.VirtualAddress))
+		// seek to OriginalFirstThunk
+		if dt.ImportAddressTableRVA > ds.VirtualAddress {
+			break
+		}
+		d = sdata[dt.ImportNameTableRVA-ds.VirtualAddress:]
+		var fs Functions
+		for len(d) > 0 {
+			if pe64 { // 64bit
+				va := binary.LittleEndian.Uint64(d[0:8])
+				d = d[8:]
+				if va == 0 {
+					break
+				}
+				if va&0x8000000000000000 > 0 { // is Ordinal
+					// TODO add dynimport ordinal support.
+					fs = append(fs, Function{Ordinal: int(va & 0xFFFF)})
+				} else {
+					fn, _ := getString(sdata, int(uint32(va)-ds.VirtualAddress+2))
+					hit := getFunctionHit(sdata, int(uint32(va)-ds.VirtualAddress))
+					fs = append(fs, Function{Name: fn, Index: int(hit)})
+				}
+			} else { // 32bit
+				va := binary.LittleEndian.Uint32(d[0:4])
+				d = d[4:]
+				if va == 0 {
+					break
+				}
+				if va&0x80000000 > 0 { // is Ordinal
+					// TODO add dynimport ordinal support.
+					//ord := va&0x0000FFFF
+					fs = append(fs, Function{Ordinal: int(va & 0xFFFF)})
+				} else {
+					fn, _ := getString(sdata, int(va-ds.VirtualAddress+2))
+					hit := getFunctionHit(sdata, int(uint32(va)-ds.VirtualAddress))
+					fs = append(fs, Function{Name: fn, Index: int(hit)})
+				}
+			}
+		}
+		ft.Imports[dt.DllName] = fs
+	}
 
 	return nil
 }
@@ -313,5 +439,13 @@ func (f *File) LookupFunctionTable() (*FunctionTable, error) {
 	if err := f.importedSymbols(ft); err != nil {
 		return nil, err
 	}
+	if err := f.importedDelaySymbols(ft); err != nil {
+		return nil, err
+	}
+	exports, err := f.LookupExports()
+	if err != nil {
+		return nil, err
+	}
+	ft.Exports = exports
 	return ft, nil
 }
