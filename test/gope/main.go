@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/fcharlie/buna/debug/pe"
+	"github.com/fcharlie/buna/demangle"
 )
 
 func main() {
@@ -44,6 +45,6 @@ func main() {
 		}
 	}
 	for _, d := range ft.Exports {
-		fmt.Fprintf(os.Stderr, "\x1b[35mE %5d %08X %s  (Hint: %d)\x1b[0m\n", d.Ordinal, d.Address, d.Name, d.Hint)
+		fmt.Fprintf(os.Stderr, "\x1b[35mE %5d %08X %s  (Hint: %d)\x1b[0m\n", d.Ordinal, d.Address, demangle.Demangle(d.Name), d.Hint)
 	}
 }
