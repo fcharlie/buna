@@ -15,6 +15,7 @@ var (
 )
 
 /*
+BytePtrFromString todo
 DWORD IMAGEAPI UnDecorateSymbolName(
   PCSTR name,
   PSTR  outputString,
