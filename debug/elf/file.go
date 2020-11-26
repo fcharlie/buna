@@ -8,13 +8,14 @@ package elf
 import (
 	"bytes"
 	"compress/zlib"
-	"debug/dwarf"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 // seekStart, seekCurrent, seekEnd are copies of

@@ -10,12 +10,13 @@ package macho
 import (
 	"bytes"
 	"compress/zlib"
-	"debug/dwarf"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 // A File represents an open Mach-O file.

@@ -8,12 +8,13 @@ package pe
 import (
 	"bytes"
 	"compress/zlib"
-	"debug/dwarf"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 // Avoid use of post-Go 1.4 io features, to make safe for toolchain bootstrap.

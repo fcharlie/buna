@@ -7,7 +7,6 @@ package elf
 import (
 	"bytes"
 	"compress/gzip"
-	"debug/dwarf"
 	"encoding/binary"
 	"io"
 	"math/rand"
@@ -17,6 +16,8 @@ import (
 	"reflect"
 	"runtime"
 	"testing"
+
+	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 type fileTest struct {
