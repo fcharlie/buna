@@ -1,0 +1,10 @@
+name = "depends"
+description = "depends - View dependency information of executable files"
+destination = "bin"
+version = "1.0.0"
+versioninfo = "res/versioninfo.json"
+manifest = "res/depends.manifest"
+goflags = [
+    "-ldflags",
+    "-X 'main.VERSION=$BUILD_VERSION' -X 'main.BUILDTIME=$BUILD_TIME' -X 'main.BUILDBRANCH=$BUILD_BRANCH' -X 'main.BUILDCOMMIT=$BUILD_COMMIT' -X 'main.GOVERSION=$BUILD_GOVERSION'",
+]

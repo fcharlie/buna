@@ -21,19 +21,20 @@ var (
 )
 
 func version() {
-	fmt.Fprintf(os.Stdout, `depends - Interesting command line download tool
+	fmt.Fprintf(os.Stdout, `depends - View dependency information of executable files
 version:       %s
 build branch:  %s
 build commit:  %s
 build time:    %s
 go version:    %s
+
 `, VERSION, BUILDBRANCH, BUILDCOMMIT, BUILDTIME, GOVERSION)
 
 }
 
 func usage() {
-	fmt.Fprintf(os.Stdout, `rind - Interesting command line download tool
-usage: %s <option> url
+	fmt.Fprintf(os.Stdout, `depends - View dependency information of executable files
+usage: %s <option> file...
   -h|--help        Show usage text and quit
   -v|--version     Show version number and quit
   -V|--verbose     Make the operation more talkative

@@ -1,0 +1,12 @@
+# https://toml.io/en/
+name = "buna"
+version = "1.0.0"
+dirs = [
+    "cmd/depends", # dirs
+]
+
+[[files]]
+path = "LICENSE"
+destination = "share"
+newname = "copyright.txt"
+norename = true
