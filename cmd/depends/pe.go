@@ -7,6 +7,17 @@ import (
 	"github.com/fcharlie/buna/debug/pe"
 )
 
+// Depend depend
+type Depend struct {
+	DllName   string   `json:"dllname"`
+	Functions []string `json:"functions"`
+}
+
+// PeDepends pe depends
+type PeDepends struct {
+	Depends []Depend `json:"depends"`
+}
+
 func analyzePeDepends(fd *os.File, p string) int {
 	file, err := pe.NewFile(fd)
 	if err != nil {
