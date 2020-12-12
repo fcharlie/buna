@@ -3,8 +3,49 @@ package mime
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 
 	"github.com/fcharlie/buna/debug/macho"
+)
+
+// BinType bintype
+type BinType int
+
+// defined
+const (
+	PE          BinType = 0x1
+	ELF         BinType = 0x2
+	MACHO       BinType = 0x4
+	Shared      BinType = 0x10000 //shared object
+	Executable  BinType = 0x20000
+	Relocatable BinType = 0x40000
+	CoreDump    BinType = 0x80000
+)
+
+// IsElf is elf file
+func (b BinType) IsElf() bool {
+	return b&ELF != 0
+}
+
+// IsPE is pe file
+func (b BinType) IsPE() bool {
+	return b&PE != 0
+}
+
+// IsMachO is macho file
+func (b BinType) IsMachO() bool {
+	return b&MACHO != 0
+}
+
+// Mime
+const (
+	PeMime             = "application/vnd.microsoft.portable-executable"
+	ElfMime            = "application/x-elf"
+	ElfRelocatableMime = "application/x-relocatable"
+	ElfExecutableMime  = "application/x-executable"
+	ElfSharedLibMime   = "application/x-sharedlib"
+	ElfCoreDumpMime    = "application/x-coredump"
+	MachoMime          = "application/x-mach-binary"
 )
 
 // Thanks https://github.com/gabriel-vasile/mimetype/blob/master/internal/matchers/binary.go
@@ -77,7 +118,28 @@ func ElfDump(in []byte) bool {
 }
 
 // Detect detect header
-func Detect(b []byte) (string, error) {
+func Detect(b []byte) (string, BinType, error) {
+	if Exe(b) {
+		return PeMime, PE, nil
+	}
+	if Elf(b) {
+		if ElfObj(b) {
+			return ElfRelocatableMime, ELF | Relocatable, nil
+		}
+		if ElfExe(b) {
+			return ElfExecutableMime, ELF | Executable, nil
+		}
+		if ElfLib(b) {
+			return ElfSharedLibMime, ELF | Shared, nil
+		}
+		if ElfDump(b) {
+			return ElfCoreDumpMime, ELF | CoreDump, nil
+		}
+		return ElfMime, ELF, nil
+	}
+	if MachO(b) {
+		return MachoMime, MACHO, nil
+	}
 
-	return "", nil
+	return "", 0, errors.New("unsupport mime")
 }

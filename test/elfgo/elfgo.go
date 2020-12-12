@@ -29,4 +29,18 @@ func main() {
 	for _, l := range libs {
 		fmt.Fprintf(os.Stderr, "need: %s\n", l)
 	}
+	if symbols, err := file.Symbols(); err == nil {
+		fmt.Fprintf(os.Stderr, "Symbols:\n")
+		for _, s := range symbols {
+			fmt.Fprintf(os.Stderr, "%s\n", s.Name)
+		}
+	}
+
+	if symbols, err := file.DynamicSymbols(); err == nil {
+		fmt.Fprintf(os.Stderr, "Dynamic Symbols:\n")
+		for _, s := range symbols {
+			fmt.Fprintf(os.Stderr, "%s (%s@%s)\n", s.Name, s.Library, s.Version)
+		}
+	}
+
 }
