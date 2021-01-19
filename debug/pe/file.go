@@ -29,7 +29,9 @@ type File struct {
 	COFFSymbols    []COFFSymbol // all COFF symbols (including auxiliary symbol records)
 	StringTable    StringTable
 
-	closer io.Closer
+	overlay []byte
+	r       io.ReaderAt
+	closer  io.Closer
 }
 
 // Open opens the named file using os.Open and prepares it for use as a PE binary.
@@ -64,6 +66,7 @@ func (f *File) Close() error {
 // NewFile creates a new File for accessing a PE binary in an underlying reader.
 func NewFile(r io.ReaderAt) (*File, error) {
 	f := new(File)
+	f.r = r
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
 	var dosheader [96]byte
