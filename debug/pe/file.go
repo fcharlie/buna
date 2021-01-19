@@ -27,10 +27,10 @@ type File struct {
 	Symbols        []*Symbol    // COFF symbols with auxiliary symbol records removed
 	COFFSymbols    []COFFSymbol // all COFF symbols (including auxiliary symbol records)
 	StringTable    StringTable
+	OverlayOffset  int64
 
-	overlay []byte
-	r       io.ReaderAt
-	closer  io.Closer
+	r      io.ReaderAt
+	closer io.Closer
 }
 
 // Open opens the named file using os.Open and prepares it for use as a PE binary.
@@ -147,6 +147,9 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			NumberOfRelocations:  sh.NumberOfRelocations,
 			NumberOfLineNumbers:  sh.NumberOfLineNumbers,
 			Characteristics:      sh.Characteristics,
+		}
+		if sectionEnd := int64(s.Offset) + int64(s.Size); sectionEnd > f.OverlayOffset {
+			f.OverlayOffset = sectionEnd
 		}
 		r2 := r
 		if sh.PointerToRawData == 0 { // .bss must have all 0s
