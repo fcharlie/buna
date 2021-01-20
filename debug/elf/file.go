@@ -17,6 +17,11 @@ import (
 	"strings"
 )
 
+// error
+var (
+	ErrNoOverlayFound = errors.New("elf: not have overlay data")
+)
+
 // seekStart, seekCurrent, seekEnd are copies of
 // io.SeekStart, io.SeekCurrent, and io.SeekEnd.
 // We can't use the ones from package io because
@@ -50,11 +55,13 @@ type FileHeader struct {
 // A File represents an open ELF file.
 type File struct {
 	FileHeader
-	Sections  []*Section
-	Progs     []*Prog
-	closer    io.Closer
-	gnuNeed   []verneed
-	gnuVersym []byte
+	Sections      []*Section
+	Progs         []*Prog
+	OverlayOffset uint64
+	r             io.ReaderAt
+	closer        io.Closer
+	gnuNeed       []verneed
+	gnuVersym     []byte
 }
 
 // A SectionHeader represents a single ELF section header.
@@ -134,6 +141,17 @@ func (s *Section) Open() io.ReadSeeker {
 	}
 	err := &FormatError{int64(s.Offset), "unknown compression type", s.compressionType}
 	return errorReader{err}
+}
+
+// NewOverlayReader create a new ReaderAt for read PE overlay data
+func (f *File) NewOverlayReader() (io.ReaderAt, error) {
+	if f.r == nil {
+		return nil, errors.New("elf: file reader is nil")
+	}
+	if f.OverlayOffset == 0 {
+		return nil, ErrNoOverlayFound
+	}
+	return io.NewSectionReader(f.r, int64(f.OverlayOffset), 1<<63-1), nil
 }
 
 // A ProgHeader represents a single ELF program header.
@@ -249,6 +267,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	}
 
 	f := new(File)
+	f.r = r
 	f.Class = Class(ident[EI_CLASS])
 	switch f.Class {
 	case ELFCLASS32:
@@ -451,7 +470,11 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	if len(f.Sections) == 0 {
 		return f, nil
 	}
-
+	for _, sec := range f.Sections {
+		if sectionEnd := sec.Offset + sec.Size; sectionEnd > f.OverlayOffset {
+			f.OverlayOffset = sectionEnd
+		}
+	}
 	// Load section header string table.
 	shstrtab, err := f.Sections[shstrndx].Data()
 	if err != nil {
@@ -1445,4 +1468,24 @@ func (f *File) DynString(tag DynTag) ([]string, error) {
 		}
 	}
 	return all, nil
+}
+
+// Overlay returns the overlay of the ELF fil (i.e. any optional bytes directly
+// succeeding the image).
+func (f *File) Overlay() ([]byte, error) {
+	sr, ok := f.r.(io.Seeker)
+	if !ok {
+		return nil, errors.New("elf: reader not a io.Seeker")
+	}
+	overlayEnd, err := sr.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("pe: seek %v", err)
+	}
+	overlayLen := overlayEnd - int64(f.OverlayOffset)
+	overlay := make([]byte, overlayLen)
+	ser := io.NewSectionReader(f.r, int64(f.OverlayOffset), overlayLen)
+	if _, err := io.ReadFull(ser, overlay); err != nil {
+		return nil, err
+	}
+	return overlay, nil
 }

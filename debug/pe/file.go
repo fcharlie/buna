@@ -297,6 +297,7 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 
 // TODO(brainman): document ImportDirectory once we decide what to do with it.
 
+// ImportDirectory ImportDirectory type
 type ImportDirectory struct {
 	OriginalFirstThunk uint32
 	TimeDateStamp      uint32
@@ -322,16 +323,16 @@ func (f *File) ImportedSymbols() ([]string, error) {
 	pe64 := f.FileHeader.SizeOfOptionalHeader == OptionalHeader64Size
 
 	// grab the number of data directory entries
-	var dd_length uint32
+	var ddlen uint32
 	if pe64 {
-		dd_length = f.OptionalHeader.(*OptionalHeader64).NumberOfRvaAndSizes
+		ddlen = f.OptionalHeader.(*OptionalHeader64).NumberOfRvaAndSizes
 	} else {
-		dd_length = f.OptionalHeader.(*OptionalHeader32).NumberOfRvaAndSizes
+		ddlen = f.OptionalHeader.(*OptionalHeader32).NumberOfRvaAndSizes
 	}
 
 	// check that the length of data directory entries is large
 	// enough to include the imports directory.
-	if dd_length < IMAGE_DIRECTORY_ENTRY_IMPORT+1 {
+	if ddlen < IMAGE_DIRECTORY_ENTRY_IMPORT+1 {
 		return nil, nil
 	}
 

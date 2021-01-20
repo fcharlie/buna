@@ -49,7 +49,7 @@ func main() {
 	}
 	overlay, err := fd.Overlay()
 	if err != nil && err != pe.ErrNoOverlayFound {
-		fmt.Fprintf(os.Stderr, "unable LookupExports: %s %v\n", os.Args[1], err)
+		fmt.Fprintf(os.Stderr, "unable detect overlay data: %s %v\n", os.Args[1], err)
 		os.Exit(1)
 	}
 	fmt.Fprintf(os.Stderr, "Overlay: %v\n", string(overlay))
