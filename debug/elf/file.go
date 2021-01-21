@@ -1479,7 +1479,7 @@ func (f *File) Overlay() ([]byte, error) {
 	}
 	overlayEnd, err := sr.Seek(0, io.SeekEnd)
 	if err != nil {
-		return nil, fmt.Errorf("pe: seek %v", err)
+		return nil, fmt.Errorf("elf: seek %v", err)
 	}
 	overlayLen := overlayEnd - int64(f.OverlayOffset)
 	overlay := make([]byte, overlayLen)

@@ -14,7 +14,7 @@ var (
 // NewOverlayReader create a new ReaderAt for read PE overlay data
 func (f *File) NewOverlayReader() (io.ReaderAt, error) {
 	if f.r == nil {
-		return nil, errors.New("PE file reader is nil")
+		return nil, errors.New("pe: file reader is nil")
 	}
 	return io.NewSectionReader(f.r, f.OverlayOffset, 1<<63-1), nil
 }
