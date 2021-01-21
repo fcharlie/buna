@@ -19,7 +19,7 @@ func (f *File) NewOverlayReader() (io.ReaderAt, error) {
 	return io.NewSectionReader(f.r, f.OverlayOffset, 1<<63-1), nil
 }
 
-// Overlay returns the overlay of the PE fil (i.e. any optional bytes directly
+// Overlay returns the overlay of the PE file (i.e. any optional bytes directly
 // succeeding the image).
 func (f *File) Overlay() ([]byte, error) {
 	sr, ok := f.r.(io.Seeker)

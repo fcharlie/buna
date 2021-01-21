@@ -143,7 +143,7 @@ func (s *Section) Open() io.ReadSeeker {
 	return errorReader{err}
 }
 
-// NewOverlayReader create a new ReaderAt for read PE overlay data
+// NewOverlayReader create a new ReaderAt for read ELF overlay data
 func (f *File) NewOverlayReader() (io.ReaderAt, error) {
 	if f.r == nil {
 		return nil, errors.New("elf: file reader is nil")
@@ -1470,7 +1470,7 @@ func (f *File) DynString(tag DynTag) ([]string, error) {
 	return all, nil
 }
 
-// Overlay returns the overlay of the ELF fil (i.e. any optional bytes directly
+// Overlay returns the overlay of the ELF file (i.e. any optional bytes directly
 // succeeding the image).
 func (f *File) Overlay() ([]byte, error) {
 	sr, ok := f.r.(io.Seeker)
