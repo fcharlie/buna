@@ -92,7 +92,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	switch f.FileHeader.Machine {
 	case IMAGE_FILE_MACHINE_UNKNOWN, IMAGE_FILE_MACHINE_ARMNT, IMAGE_FILE_MACHINE_ARM64, IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_I386:
 	default:
-		return nil, fmt.Errorf("unrecognised COFF file header machine value of 0x%x", f.FileHeader.Machine)
+		return nil, fmt.Errorf("unrecognized PE machine: %#x", f.FileHeader.Machine)
 	}
 
 	var err error
