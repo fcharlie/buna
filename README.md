@@ -10,6 +10,10 @@ This package is transplanted from [debug](https://github.com/golang/go/tree/mast
 
 This package also ported [ianlancetaylor/demangle](https://github.com/ianlancetaylor/demangle), which can demangle MSVC ABI C++ functions in Windows. 
 
+## Docs
+
+[https://pkg.go.dev/github.com/fcharlie/buna](https://pkg.go.dev/github.com/fcharlie/buna)
+
 ## Usage
 
 ```shell

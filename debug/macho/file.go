@@ -11,12 +11,18 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/fcharlie/buna/debug/dwarf"
+)
+
+// error
+var (
+	ErrNoOverlayFound = errors.New("macho: not have overlay data")
 )
 
 // A File represents an open Mach-O file.
@@ -26,8 +32,10 @@ type File struct {
 	Loads     []Load
 	Sections  []*Section
 
-	Symtab   *Symtab
-	Dysymtab *Dysymtab
+	Symtab        *Symtab
+	Dysymtab      *Dysymtab
+	OverlayOffset uint64
+	r             io.ReaderAt
 
 	closer io.Closer
 }
@@ -228,6 +236,7 @@ func (f *File) Close() error {
 // The Mach-O binary is expected to start at position 0 in the ReaderAt.
 func NewFile(r io.ReaderAt) (*File, error) {
 	f := new(File)
+	f.r = r
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
 	// Read and decode Mach magic to determine byte order, size.
@@ -376,6 +385,9 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			s.Memsz = uint64(seg32.Memsz)
 			s.Offset = uint64(seg32.Offset)
 			s.Filesz = uint64(seg32.Filesz)
+			if sectionEnd := uint64(s.Offset) + s.Filesz; sectionEnd > f.OverlayOffset {
+				f.OverlayOffset = sectionEnd
+			}
 			s.Maxprot = seg32.Maxprot
 			s.Prot = seg32.Prot
 			s.Nsect = seg32.Nsect
@@ -416,6 +428,9 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			s.Memsz = seg64.Memsz
 			s.Offset = seg64.Offset
 			s.Filesz = seg64.Filesz
+			if sectionEnd := uint64(s.Offset) + s.Filesz; sectionEnd > f.OverlayOffset {
+				f.OverlayOffset = sectionEnd
+			}
 			s.Maxprot = seg64.Maxprot
 			s.Prot = seg64.Prot
 			s.Nsect = seg64.Nsect
@@ -444,6 +459,11 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		if s != nil {
 			s.sr = io.NewSectionReader(r, int64(s.Offset), int64(s.Filesz))
 			s.ReaderAt = s.sr
+		}
+	}
+	for _, sec := range f.Sections {
+		if sectionEnd := uint64(sec.Offset) + sec.Size; sectionEnd > f.OverlayOffset {
+			f.OverlayOffset = sectionEnd
 		}
 	}
 	return f, nil
@@ -691,4 +711,35 @@ func (f *File) ImportedLibraries() ([]string, error) {
 		}
 	}
 	return all, nil
+}
+
+// NewOverlayReader create a new ReaderAt for read Mach-O overlay data
+func (f *File) NewOverlayReader() (io.ReaderAt, error) {
+	if f.r == nil {
+		return nil, errors.New("elf: file reader is nil")
+	}
+	if f.OverlayOffset == 0 {
+		return nil, ErrNoOverlayFound
+	}
+	return io.NewSectionReader(f.r, int64(f.OverlayOffset), 1<<63-1), nil
+}
+
+// Overlay returns the overlay of the Mach-O file (i.e. any optional bytes directly
+// succeeding the image).
+func (f *File) Overlay() ([]byte, error) {
+	sr, ok := f.r.(io.Seeker)
+	if !ok {
+		return nil, errors.New("macho: reader not a io.Seeker")
+	}
+	overlayEnd, err := sr.Seek(0, io.SeekEnd)
+	if err != nil {
+		return nil, fmt.Errorf("macho: seek %v", err)
+	}
+	overlayLen := overlayEnd - int64(f.OverlayOffset)
+	overlay := make([]byte, overlayLen)
+	ser := io.NewSectionReader(f.r, int64(f.OverlayOffset), overlayLen)
+	if _, err := io.ReadFull(ser, overlay); err != nil {
+		return nil, err
+	}
+	return overlay, nil
 }
