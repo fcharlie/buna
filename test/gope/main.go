@@ -45,12 +45,16 @@ func main() {
 		}
 	}
 	for _, d := range ft.Exports {
+		if len(d.ForwardName) != 0 {
+			fmt.Fprintf(os.Stderr, "\x1b[35mE %5d %08X %s  (Hint: %d) --> %s\x1b[0m\n", d.Ordinal, d.Address, demangle.Demangle(d.Name), d.Hint, d.ForwardName)
+			continue
+		}
 		fmt.Fprintf(os.Stderr, "\x1b[35mE %5d %08X %s  (Hint: %d)\x1b[0m\n", d.Ordinal, d.Address, demangle.Demangle(d.Name), d.Hint)
 	}
-	overlay, err := fd.Overlay()
-	if err != nil && err != pe.ErrNoOverlayFound {
-		fmt.Fprintf(os.Stderr, "unable detect overlay data: %s %v\n", os.Args[1], err)
-		os.Exit(1)
-	}
-	fmt.Fprintf(os.Stderr, "Overlay: %v\n", string(overlay))
+	// overlay, err := fd.Overlay()
+	// if err != nil && err != pe.ErrNoOverlayFound {
+	// 	fmt.Fprintf(os.Stderr, "unable detect overlay data: %s %v\n", os.Args[1], err)
+	// 	os.Exit(1)
+	// }
+	// fmt.Fprintf(os.Stderr, "Overlay: %v\n", string(overlay))
 }
