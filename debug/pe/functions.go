@@ -10,12 +10,11 @@ import (
 
 // ExportedSymbol exported
 type ExportedSymbol struct {
-	Name            string
-	UndecoratedName string
-	ForwardName     string
-	Address         uint32
-	Ordinal         uint16
-	Hint            uint16
+	Name        string
+	ForwardName string
+	Address     uint32
+	Ordinal     uint16
+	Hint        uint16
 }
 
 // Exports support sort
