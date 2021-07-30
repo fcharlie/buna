@@ -161,13 +161,13 @@ func (f *File) LookupExports() ([]ExportedSymbol, error) {
 			}
 		}
 	}
-	dsEnd := ds.VirtualAddress + ds.Size
+	iddEnd := idd.VirtualAddress + idd.Size
 	if ied.AddressOfFunctions > ds.VirtualAddress && ied.AddressOfFunctions < ds.VirtualAddress+ds.VirtualSize {
 		d = sdata[ied.AddressOfFunctions-ds.VirtualAddress:]
 		for i := 0; i < len(exports); i++ {
 			if len(d) >= int(exports[i].Ordinal)*4+4 {
 				exports[i].Address = binary.LittleEndian.Uint32(d[int(exports[i].Ordinal-ordinalBase)*4:])
-				if exports[i].Address >= ds.VirtualAddress && exports[i].Address < dsEnd {
+				if exports[i].Address >= idd.VirtualAddress && exports[i].Address < iddEnd {
 					exports[i].ForwardName, _ = getString(sdata, int(exports[i].Address-ds.VirtualAddress))
 				}
 			}
