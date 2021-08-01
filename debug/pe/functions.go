@@ -3,7 +3,6 @@ package pe
 import (
 	"encoding/binary"
 	"fmt"
-	"sort"
 )
 
 // PE import export table
@@ -136,14 +135,14 @@ func (f *File) LookupExports() ([]ExportedSymbol, error) {
 	if ied.NumberOfNames == 0 {
 		return nil, nil
 	}
-	dataDirEnd := idd.VirtualAddress + idd.Size
+	exportDataEnd := idd.VirtualAddress + idd.Size
 	sectionEnd := ds.VirtualAddress + ds.VirtualSize
 	exports := make([]ExportedSymbol, ied.NumberOfFunctions) // make function
 	if ied.AddressOfFunctions > ds.VirtualAddress && ied.AddressOfFunctions+ied.NumberOfFunctions*4 < sectionEnd {
 		d = sdata[ied.AddressOfFunctions-ds.VirtualAddress:]
 		for i := uint32(0); i < ied.NumberOfFunctions; i++ {
 			address := binary.LittleEndian.Uint32(d[i*4:])
-			if address > idd.VirtualAddress && address < dataDirEnd {
+			if address > idd.VirtualAddress && address < exportDataEnd {
 				exports[i].ForwardName, _ = getString(sdata, int(address-ds.VirtualAddress))
 			}
 			exports[i].Address = address
@@ -167,7 +166,6 @@ func (f *File) LookupExports() ([]ExportedSymbol, error) {
 		}
 	}
 
-	sort.Sort(Exports(exports))
 	return exports, nil
 }
 
