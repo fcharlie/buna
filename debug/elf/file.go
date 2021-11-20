@@ -18,11 +18,6 @@ import (
 	"github.com/fcharlie/buna/debug/dwarf"
 )
 
-// error
-var (
-	ErrNoOverlayFound = errors.New("elf: not have overlay data")
-)
-
 // seekStart, seekCurrent, seekEnd are copies of
 // io.SeekStart, io.SeekCurrent, and io.SeekEnd.
 // We can't use the ones from package io because
@@ -142,17 +137,6 @@ func (s *Section) Open() io.ReadSeeker {
 	}
 	err := &FormatError{int64(s.Offset), "unknown compression type", s.compressionType}
 	return errorReader{err}
-}
-
-// NewOverlayReader create a new ReaderAt for read ELF overlay data
-func (f *File) NewOverlayReader() (io.ReaderAt, error) {
-	if f.r == nil {
-		return nil, errors.New("elf: file reader is nil")
-	}
-	if f.OverlayOffset == 0 {
-		return nil, ErrNoOverlayFound
-	}
-	return io.NewSectionReader(f.r, int64(f.OverlayOffset), 1<<63-1), nil
 }
 
 // A ProgHeader represents a single ELF program header.
@@ -476,6 +460,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			f.OverlayOffset = sectionEnd
 		}
 	}
+
 	// Load section header string table.
 	shstrtab, err := f.Sections[shstrndx].Data()
 	if err != nil {
@@ -1188,6 +1173,13 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 			b = dbuf
 		}
 
+		if f.Type == ET_EXEC {
+			// Do not apply relocations to DWARF sections for ET_EXEC binaries.
+			// Relocations should already be applied, and .rela sections may
+			// contain incorrect data.
+			return b, nil
+		}
+
 		for _, r := range f.Sections {
 			if r.Type != SHT_RELA && r.Type != SHT_REL {
 				continue
@@ -1469,24 +1461,4 @@ func (f *File) DynString(tag DynTag) ([]string, error) {
 		}
 	}
 	return all, nil
-}
-
-// Overlay returns the overlay of the ELF file (i.e. any optional bytes directly
-// succeeding the image).
-func (f *File) Overlay() ([]byte, error) {
-	sr, ok := f.r.(io.Seeker)
-	if !ok {
-		return nil, errors.New("elf: reader not a io.Seeker")
-	}
-	overlayEnd, err := sr.Seek(0, io.SeekEnd)
-	if err != nil {
-		return nil, fmt.Errorf("elf: seek %v", err)
-	}
-	overlayLen := overlayEnd - int64(f.OverlayOffset)
-	overlay := make([]byte, overlayLen)
-	ser := io.NewSectionReader(f.r, int64(f.OverlayOffset), overlayLen)
-	if _, err := io.ReadFull(ser, overlay); err != nil {
-		return nil, err
-	}
-	return overlay, nil
 }

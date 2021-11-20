@@ -3,19 +3,17 @@ package pe
 import (
 	"encoding/binary"
 	"fmt"
-	"sort"
 )
 
 // PE import export table
 
 // ExportedSymbol exported
 type ExportedSymbol struct {
-	Name            string
-	UndecoratedName string
-	ForwardName     string
-	Address         uint32
-	Ordinal         uint16
-	Hint            uint16
+	Name        string
+	ForwardName string
+	Address     uint32
+	Ordinal     uint16
+	Hint        int
 }
 
 // Exports support sort
@@ -137,40 +135,37 @@ func (f *File) LookupExports() ([]ExportedSymbol, error) {
 	if ied.NumberOfNames == 0 {
 		return nil, nil
 	}
-	ordinalBase := uint16(ied.Base)
-	exports := make([]ExportedSymbol, ied.NumberOfNames) // make
-	if ied.AddressOfNameOrdinals > ds.VirtualAddress && ied.AddressOfNameOrdinals < ds.VirtualAddress+ds.VirtualSize {
-		d = sdata[ied.AddressOfNameOrdinals-ds.VirtualAddress:]
-		if len(d) > len(exports)*2 {
-			for i := 0; i < len(exports); i++ {
-				exports[i].Ordinal = binary.LittleEndian.Uint16(d[i*2:]) + ordinalBase
-				exports[i].Hint = uint16(i)
-			}
-		}
-	} else {
-		for i := 0; i < len(exports); i++ {
-			exports[i].Ordinal = 0xFFFF
-			exports[i].Hint = uint16(i)
-		}
-	}
-	if ied.AddressOfNames > ds.VirtualAddress && ied.AddressOfNames < ds.VirtualAddress+ds.VirtualSize {
-		d = sdata[ied.AddressOfNames-ds.VirtualAddress:]
-		if len(sdata) >= len(exports)*4 {
-			for i := 0; i < len(exports); i++ {
-				start := binary.LittleEndian.Uint32(d[i*4:]) - ds.VirtualAddress
-				exports[i].Name, _ = getString(sdata, int(start))
-			}
-		}
-	}
-	if ied.AddressOfFunctions > ds.VirtualAddress && ied.AddressOfFunctions < ds.VirtualAddress+ds.VirtualSize {
+	exportDataEnd := idd.VirtualAddress + idd.Size
+	sectionEnd := ds.VirtualAddress + ds.VirtualSize
+	exports := make([]ExportedSymbol, ied.NumberOfFunctions) // make function
+	if ied.AddressOfFunctions > ds.VirtualAddress && ied.AddressOfFunctions+ied.NumberOfFunctions*4 < sectionEnd {
 		d = sdata[ied.AddressOfFunctions-ds.VirtualAddress:]
-		for i := 0; i < len(exports); i++ {
-			if len(d) >= int(exports[i].Ordinal)*4+4 {
-				exports[i].Address = binary.LittleEndian.Uint32(d[int(exports[i].Ordinal-ordinalBase)*4:])
+		for i := uint32(0); i < ied.NumberOfFunctions; i++ {
+			address := binary.LittleEndian.Uint32(d[i*4:])
+			if address > idd.VirtualAddress && address < exportDataEnd {
+				exports[i].ForwardName, _ = getString(sdata, int(address-ds.VirtualAddress))
 			}
+			exports[i].Address = address
+			exports[i].Ordinal = uint16(i + ied.Base)
+			exports[i].Hint = -1
 		}
 	}
-	sort.Sort(Exports(exports))
+	if ied.AddressOfNames > ds.VirtualAddress && ied.AddressOfNames+ied.NumberOfNames*4 <= sectionEnd &&
+		ied.AddressOfNameOrdinals > ds.VirtualAddress && ied.AddressOfNameOrdinals+ied.NumberOfNames*2 <= sectionEnd {
+		nameTable := sdata[ied.AddressOfNames-ds.VirtualAddress:]
+		ordinalTable := sdata[ied.AddressOfNameOrdinals-ds.VirtualAddress:]
+		for i := 0; i < int(ied.NumberOfNames); i++ {
+			nameRVA := binary.LittleEndian.Uint32(nameTable[i*4:])
+			name, _ := getString(sdata, int(nameRVA-ds.VirtualAddress))
+			ordinalIndex := binary.LittleEndian.Uint16(ordinalTable[i*2:])
+			if uint32(ordinalIndex) >= ied.NumberOfFunctions {
+				continue
+			}
+			exports[ordinalIndex].Name = name
+			exports[ordinalIndex].Hint = i
+		}
+	}
+
 	return exports, nil
 }
 
