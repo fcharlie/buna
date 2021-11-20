@@ -55,6 +55,20 @@ func TestReaderSeek(t *testing.T) {
 		{0x400611, nil},
 	}
 	testRanges(t, "testdata/line-gcc.elf", want)
+
+	want = []wantRange{
+		{0x401122, [][2]uint64{{0x401122, 0x401166}}},
+		{0x401165, [][2]uint64{{0x401122, 0x401166}}},
+		{0x401166, [][2]uint64{{0x401166, 0x401179}}},
+	}
+	testRanges(t, "testdata/line-gcc-dwarf5.elf", want)
+
+	want = []wantRange{
+		{0x401130, [][2]uint64{{0x401130, 0x40117e}}},
+		{0x40117d, [][2]uint64{{0x401130, 0x40117e}}},
+		{0x40117e, nil},
+	}
+	testRanges(t, "testdata/line-clang-dwarf5.elf", want)
 }
 
 func TestRangesSection(t *testing.T) {
@@ -68,6 +82,19 @@ func TestRangesSection(t *testing.T) {
 		{0x4003ff, nil},
 	}
 	testRanges(t, "testdata/ranges.elf", want)
+}
+
+func TestRangesRnglistx(t *testing.T) {
+	want := []wantRange{
+		{0x401000, [][2]uint64{{0x401020, 0x40102c}, {0x401000, 0x40101d}}},
+		{0x40101c, [][2]uint64{{0x401020, 0x40102c}, {0x401000, 0x40101d}}},
+		{0x40101d, nil},
+		{0x40101f, nil},
+		{0x401020, [][2]uint64{{0x401020, 0x40102c}, {0x401000, 0x40101d}}},
+		{0x40102b, [][2]uint64{{0x401020, 0x40102c}, {0x401000, 0x40101d}}},
+		{0x40102c, nil},
+	}
+	testRanges(t, "testdata/rnglistx.elf", want)
 }
 
 func testRanges(t *testing.T, name string, want []wantRange) {
@@ -97,44 +124,72 @@ func testRanges(t *testing.T, name string, want []wantRange) {
 }
 
 func TestReaderRanges(t *testing.T) {
-	d := elfData(t, "testdata/line-gcc.elf")
-
-	subprograms := []struct {
+	type subprograms []struct {
 		name   string
 		ranges [][2]uint64
+	}
+	tests := []struct {
+		filename    string
+		subprograms subprograms
 	}{
-		{"f1", [][2]uint64{{0x40059d, 0x4005e7}}},
-		{"main", [][2]uint64{{0x4005e7, 0x400601}}},
-		{"f2", [][2]uint64{{0x400601, 0x400611}}},
+		{
+			"testdata/line-gcc.elf",
+			subprograms{
+				{"f1", [][2]uint64{{0x40059d, 0x4005e7}}},
+				{"main", [][2]uint64{{0x4005e7, 0x400601}}},
+				{"f2", [][2]uint64{{0x400601, 0x400611}}},
+			},
+		},
+		{
+			"testdata/line-gcc-dwarf5.elf",
+			subprograms{
+				{"main", [][2]uint64{{0x401147, 0x401166}}},
+				{"f1", [][2]uint64{{0x401122, 0x401147}}},
+				{"f2", [][2]uint64{{0x401166, 0x401179}}},
+			},
+		},
+		{
+			"testdata/line-clang-dwarf5.elf",
+			subprograms{
+				{"main", [][2]uint64{{0x401130, 0x401144}}},
+				{"f1", [][2]uint64{{0x401150, 0x40117e}}},
+				{"f2", [][2]uint64{{0x401180, 0x401197}}},
+			},
+		},
 	}
 
-	r := d.Reader()
-	i := 0
-	for entry, err := r.Next(); entry != nil && err == nil; entry, err = r.Next() {
-		if entry.Tag != TagSubprogram {
-			continue
+	for _, test := range tests {
+		d := elfData(t, test.filename)
+		subprograms := test.subprograms
+
+		r := d.Reader()
+		i := 0
+		for entry, err := r.Next(); entry != nil && err == nil; entry, err = r.Next() {
+			if entry.Tag != TagSubprogram {
+				continue
+			}
+
+			if i > len(subprograms) {
+				t.Fatalf("%s: too many subprograms (expected at most %d)", test.filename, i)
+			}
+
+			if got := entry.Val(AttrName).(string); got != subprograms[i].name {
+				t.Errorf("%s: subprogram %d name is %s, expected %s", test.filename, i, got, subprograms[i].name)
+			}
+			ranges, err := d.Ranges(entry)
+			if err != nil {
+				t.Errorf("%s: subprogram %d: %v", test.filename, i, err)
+				continue
+			}
+			if !reflect.DeepEqual(ranges, subprograms[i].ranges) {
+				t.Errorf("%s: subprogram %d ranges are %x, expected %x", test.filename, i, ranges, subprograms[i].ranges)
+			}
+			i++
 		}
 
-		if i > len(subprograms) {
-			t.Fatalf("too many subprograms (expected at most %d)", i)
+		if i < len(subprograms) {
+			t.Errorf("%s: saw only %d subprograms, expected %d", test.filename, i, len(subprograms))
 		}
-
-		if got := entry.Val(AttrName).(string); got != subprograms[i].name {
-			t.Errorf("subprogram %d name is %s, expected %s", i, got, subprograms[i].name)
-		}
-		ranges, err := d.Ranges(entry)
-		if err != nil {
-			t.Errorf("subprogram %d: %v", i, err)
-			continue
-		}
-		if !reflect.DeepEqual(ranges, subprograms[i].ranges) {
-			t.Errorf("subprogram %d ranges are %x, expected %x", i, ranges, subprograms[i].ranges)
-		}
-		i++
-	}
-
-	if i < len(subprograms) {
-		t.Errorf("saw only %d subprograms, expected %d", i, len(subprograms))
 	}
 }
 

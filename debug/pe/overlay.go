@@ -38,3 +38,20 @@ func (f *File) Overlay() ([]byte, error) {
 	}
 	return overlay, nil
 }
+
+func (f *File) OverlayLength() int64 {
+	sr, ok := f.r.(io.Seeker)
+	if !ok {
+		return 0
+	}
+	cur, err := sr.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0
+	}
+	defer sr.Seek(cur, io.SeekStart)
+	overlayEnd, err := sr.Seek(0, io.SeekEnd)
+	if err != nil {
+		return 0
+	}
+	return overlayEnd - f.OverlayOffset
+}

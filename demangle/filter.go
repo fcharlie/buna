@@ -5,9 +5,12 @@ import (
 	"strings"
 )
 
+func isRustEncoding(mangledName string) bool {
+	return strings.HasPrefix(mangledName, "_R")
+}
+
 func isItaniumEncoding(mangledName string) bool {
-	pos := strings.IndexByte(mangledName, '_')
-	return pos >= 0 && pos <= 4 && pos+1 < len(mangledName) && mangledName[pos+1] == 'Z'
+	return strings.HasPrefix(mangledName, "_Z") || strings.HasPrefix(mangledName, "___Z")
 }
 
 // Demangle a string just as the GNU c++filt program does.
@@ -32,7 +35,7 @@ func doItaniumFilter(out *bytes.Buffer, name string) {
 
 // Demangle demangle todo
 func Demangle(name string) string {
-	if isItaniumEncoding(name) {
+	if isItaniumEncoding(name) || isRustEncoding(name) {
 		// fmt.Fprintf(os.Stderr, "is Itanium\n")
 		// var out bytes.Buffer
 		// doItaniumFilter(&out, name)

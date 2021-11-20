@@ -50,13 +50,14 @@ type FileHeader struct {
 // A File represents an open ELF file.
 type File struct {
 	FileHeader
-	Sections      []*Section
-	Progs         []*Prog
+	Sections  []*Section
+	Progs     []*Prog
+	closer    io.Closer
+	gnuNeed   []verneed
+	gnuVersym []byte
+	// extension
 	OverlayOffset uint64
 	r             io.ReaderAt
-	closer        io.Closer
-	gnuNeed       []verneed
-	gnuVersym     []byte
 }
 
 // A SectionHeader represents a single ELF section header.
@@ -502,7 +503,7 @@ func (f *File) getSymbols32(typ SectionType) ([]Symbol, []byte, error) {
 
 	data, err := symtabSection.Data()
 	if err != nil {
-		return nil, nil, errors.New("cannot load symbol section")
+		return nil, nil, fmt.Errorf("cannot load symbol section: %w", err)
 	}
 	symtab := bytes.NewReader(data)
 	if symtab.Len()%Sym32Size != 0 {
@@ -511,7 +512,7 @@ func (f *File) getSymbols32(typ SectionType) ([]Symbol, []byte, error) {
 
 	strdata, err := f.stringTable(symtabSection.Link)
 	if err != nil {
-		return nil, nil, errors.New("cannot load string table section")
+		return nil, nil, fmt.Errorf("cannot load string table section: %w", err)
 	}
 
 	// The first entry is all zeros.
@@ -545,7 +546,7 @@ func (f *File) getSymbols64(typ SectionType) ([]Symbol, []byte, error) {
 
 	data, err := symtabSection.Data()
 	if err != nil {
-		return nil, nil, errors.New("cannot load symbol section")
+		return nil, nil, fmt.Errorf("cannot load symbol section: %w", err)
 	}
 	symtab := bytes.NewReader(data)
 	if symtab.Len()%Sym64Size != 0 {
@@ -554,7 +555,7 @@ func (f *File) getSymbols64(typ SectionType) ([]Symbol, []byte, error) {
 
 	strdata, err := f.stringTable(symtabSection.Link)
 	if err != nil {
-		return nil, nil, errors.New("cannot load string table section")
+		return nil, nil, fmt.Errorf("cannot load string table section: %w", err)
 	}
 
 	// The first entry is all zeros.

@@ -10,7 +10,6 @@ import (
 	"io"
 )
 
-// COFFSymbolSize size
 const COFFSymbolSize = 18
 
 // COFFSymbol represents single COFF symbol table record.
