@@ -4,7 +4,6 @@
 
 package pe
 
-// FileHeader PE file header
 type FileHeader struct {
 	Machine              uint16
 	NumberOfSections     uint16
@@ -15,13 +14,11 @@ type FileHeader struct {
 	Characteristics      uint16
 }
 
-// DataDirectory resource dir
 type DataDirectory struct {
 	VirtualAddress uint32
 	Size           uint32
 }
 
-// OptionalHeader32 32
 type OptionalHeader32 struct {
 	Magic                       uint16
 	MajorLinkerVersion          uint8
@@ -56,7 +53,6 @@ type OptionalHeader32 struct {
 	DataDirectory               [16]DataDirectory
 }
 
-// OptionalHeader64 oh64
 type OptionalHeader64 struct {
 	Magic                       uint16
 	MajorLinkerVersion          uint8
@@ -113,12 +109,6 @@ const (
 	IMAGE_FILE_MACHINE_SH5       = 0x1a8
 	IMAGE_FILE_MACHINE_THUMB     = 0x1c2
 	IMAGE_FILE_MACHINE_WCEMIPSV2 = 0x169
-	IMAGE_FILE_MACHINE_RISCV32   = 0x5032
-	IMAGE_FILE_MACHINE_RISCV64   = 0x5064
-	IMAGE_FILE_MACHINE_RISCV128  = 0x50128
-	IMAGE_FILE_MACHINE_CHPE_X86  = 0x3A64
-	IMAGE_FILE_MACHINE_ARM64EC   = 0x3A64
-	IMAGE_FILE_MACHINE_ARM64X    = 0xA64E
 )
 
 // IMAGE_DIRECTORY_ENTRY constants
@@ -175,7 +165,6 @@ const (
 	IMAGE_SUBSYSTEM_EFI_ROM                  = 13
 	IMAGE_SUBSYSTEM_XBOX                     = 14
 	IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION = 16
-	IMAGE_SUBSYSTEM_XBOX_CODE_CATALOG        = 17
 )
 
 // OptionalHeader64.DllCharacteristics and OptionalHeader32.DllCharacteristics

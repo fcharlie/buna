@@ -359,8 +359,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 				return nil, &FormatError{offset, fmt.Sprintf(
 					"undefined symbols index in dynamic symbol table command is greater than symbol table length (%d > %d)",
 					hdr.Iundefsym, len(f.Symtab.Syms)), nil}
-			} 
-			if hdr.Iundefsym+hdr.Nundefsym > uint32(len(f.Symtab.Syms)) {
+			} else if hdr.Iundefsym+hdr.Nundefsym > uint32(len(f.Symtab.Syms)) {
 				return nil, &FormatError{offset, fmt.Sprintf(
 					"number of undefined symbols after index in dynamic symbol table command is greater than symbol table length (%d > %d)",
 					hdr.Iundefsym+hdr.Nundefsym, len(f.Symtab.Syms)), nil}
@@ -672,10 +671,14 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 		return nil, err
 	}
 
-	// Look for DWARF4 .debug_types sections.
+	// Look for DWARF4 .debug_types sections and DWARF5 sections.
 	for i, s := range f.Sections {
 		suffix := dwarfSuffix(s)
-		if suffix != "types" {
+		if suffix == "" {
+			continue
+		}
+		if _, ok := dat[suffix]; ok {
+			// Already handled.
 			continue
 		}
 
@@ -684,7 +687,11 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 			return nil, err
 		}
 
-		err = d.AddTypes(fmt.Sprintf("types-%d", i), b)
+		if suffix == "types" {
+			err = d.AddTypes(fmt.Sprintf("types-%d", i), b)
+		} else {
+			err = d.AddSection(".debug_"+suffix, b)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -726,7 +733,7 @@ func (f *File) ImportedLibraries() ([]string, error) {
 // NewOverlayReader create a new ReaderAt for read Mach-O overlay data
 func (f *File) NewOverlayReader() (io.ReaderAt, error) {
 	if f.r == nil {
-		return nil, errors.New("elf: file reader is nil")
+		return nil, errors.New("macho: file reader is nil")
 	}
 	if f.OverlayOffset == 0 {
 		return nil, ErrNoOverlayFound

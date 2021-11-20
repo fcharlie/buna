@@ -8,13 +8,12 @@ package pe
 import (
 	"bytes"
 	"compress/zlib"
+	"debug/dwarf"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-
-	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 // Avoid use of post-Go 1.4 io features, to make safe for toolchain bootstrap.
@@ -79,7 +78,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		var sign [4]byte
 		r.ReadAt(sign[:], signoff)
 		if !(sign[0] == 'P' && sign[1] == 'E' && sign[2] == 0 && sign[3] == 0) {
-			return nil, fmt.Errorf("invalid PE COFF file signature of %v", sign)
+			return nil, fmt.Errorf("invalid PE file signature: % x", sign)
 		}
 		base = signoff + 4
 	} else {
@@ -90,7 +89,12 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		return nil, err
 	}
 	switch f.FileHeader.Machine {
-	case IMAGE_FILE_MACHINE_UNKNOWN, IMAGE_FILE_MACHINE_ARMNT, IMAGE_FILE_MACHINE_ARM64, IMAGE_FILE_MACHINE_AMD64, IMAGE_FILE_MACHINE_I386:
+	case IMAGE_FILE_MACHINE_AMD64,
+		IMAGE_FILE_MACHINE_ARM64,
+		IMAGE_FILE_MACHINE_ARMNT,
+		IMAGE_FILE_MACHINE_I386,
+		IMAGE_FILE_MACHINE_UNKNOWN:
+		// ok
 	default:
 		return nil, fmt.Errorf("unrecognized PE machine: %#x", f.FileHeader.Machine)
 	}
@@ -116,7 +120,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	// Seek past file header.
 	_, err = sr.Seek(base+int64(binary.Size(f.FileHeader)), seekStart)
 	if err != nil {
-		return nil, fmt.Errorf("failure to seek past the file header: %v", err)
+		return nil, err
 	}
 
 	// Read optional header.
@@ -207,7 +211,6 @@ func (f *File) Section(name string) *Section {
 	return nil
 }
 
-// DWARF DWARF data
 func (f *File) DWARF() (*dwarf.Data, error) {
 	dwarfSuffix := func(s *Section) string {
 		switch {
@@ -275,10 +278,14 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 		return nil, err
 	}
 
-	// Look for DWARF4 .debug_types sections.
+	// Look for DWARF4 .debug_types sections and DWARF5 sections.
 	for i, s := range f.Sections {
 		suffix := dwarfSuffix(s)
-		if suffix != "types" {
+		if suffix == "" {
+			continue
+		}
+		if _, ok := dat[suffix]; ok {
+			// Already handled.
 			continue
 		}
 
@@ -287,7 +294,11 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 			return nil, err
 		}
 
-		err = d.AddTypes(fmt.Sprintf("types-%d", i), b)
+		if suffix == "types" {
+			err = d.AddTypes(fmt.Sprintf("types-%d", i), b)
+		} else {
+			err = d.AddSection(".debug_"+suffix, b)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -298,7 +309,6 @@ func (f *File) DWARF() (*dwarf.Data, error) {
 
 // TODO(brainman): document ImportDirectory once we decide what to do with it.
 
-// ImportDirectory ImportDirectory type
 type ImportDirectory struct {
 	OriginalFirstThunk uint32
 	TimeDateStamp      uint32
@@ -309,9 +319,6 @@ type ImportDirectory struct {
 	dll string
 }
 
-// OptionalHeader64Size size
-const OptionalHeader64Size = 240
-
 // ImportedSymbols returns the names of all symbols
 // referred to by the binary f that are expected to be
 // satisfied by other libraries at dynamic load time.
@@ -321,19 +328,19 @@ func (f *File) ImportedSymbols() ([]string, error) {
 		return nil, nil
 	}
 
-	pe64 := f.FileHeader.SizeOfOptionalHeader == OptionalHeader64Size
+	pe64 := f.Machine == IMAGE_FILE_MACHINE_AMD64 || f.Machine == IMAGE_FILE_MACHINE_ARM64
 
 	// grab the number of data directory entries
-	var ddlen uint32
+	var dd_length uint32
 	if pe64 {
-		ddlen = f.OptionalHeader.(*OptionalHeader64).NumberOfRvaAndSizes
+		dd_length = f.OptionalHeader.(*OptionalHeader64).NumberOfRvaAndSizes
 	} else {
-		ddlen = f.OptionalHeader.(*OptionalHeader32).NumberOfRvaAndSizes
+		dd_length = f.OptionalHeader.(*OptionalHeader32).NumberOfRvaAndSizes
 	}
 
 	// check that the length of data directory entries is large
 	// enough to include the imports directory.
-	if ddlen < IMAGE_DIRECTORY_ENTRY_IMPORT+1 {
+	if dd_length < IMAGE_DIRECTORY_ENTRY_IMPORT+1 {
 		return nil, nil
 	}
 

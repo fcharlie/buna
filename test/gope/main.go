@@ -59,6 +59,7 @@ func main() {
 		}
 		fmt.Fprintf(os.Stderr, "\x1b[35mE %5d %08X %s  (Hint: %d)\x1b[0m\n", d.Ordinal, d.Address, demangle.Demangle(d.Name), d.Hint)
 	}
+	fmt.Fprintf(os.Stderr, "Overlay Length: %d\n", fd.OverlayLength())
 	// overlay, err := fd.Overlay()
 	// if err != nil && err != pe.ErrNoOverlayFound {
 	// 	fmt.Fprintf(os.Stderr, "unable detect overlay data: %s %v\n", os.Args[1], err)

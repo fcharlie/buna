@@ -6,8 +6,8 @@ package pe
 
 import (
 	"bytes"
+	"debug/dwarf"
 	"internal/testenv"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +17,6 @@ import (
 	"strconv"
 	"testing"
 	"text/template"
-
-	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 type fileTest struct {
@@ -355,11 +353,7 @@ func testDWARF(t *testing.T, linktype int) {
 	}
 	testenv.MustHaveGoRun(t)
 
-	tmpdir, err := ioutil.TempDir("", "TestDWARF")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpdir)
+	tmpdir := t.TempDir()
 
 	src := filepath.Join(tmpdir, "a.go")
 	file, err := os.Create(src)
@@ -474,11 +468,7 @@ func TestBSSHasZeros(t *testing.T) {
 		t.Skip("skipping test: gcc is missing")
 	}
 
-	tmpdir, err := ioutil.TempDir("", "TestBSSHasZeros")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpdir)
+	tmpdir := t.TempDir()
 
 	srcpath := filepath.Join(tmpdir, "a.c")
 	src := `
@@ -493,7 +483,7 @@ main(void)
 	return 0;
 }
 `
-	err = ioutil.WriteFile(srcpath, []byte(src), 0644)
+	err = os.WriteFile(srcpath, []byte(src), 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,15 +588,10 @@ func TestBuildingWindowsGUI(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("skipping windows only test")
 	}
-	tmpdir, err := ioutil.TempDir("", "TestBuildingWindowsGUI")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpdir)
+	tmpdir := t.TempDir()
 
 	src := filepath.Join(tmpdir, "a.go")
-	err = ioutil.WriteFile(src, []byte(`package main; func main() {}`), 0644)
-	if err != nil {
+	if err := os.WriteFile(src, []byte(`package main; func main() {}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	exe := filepath.Join(tmpdir, "a.exe")
@@ -685,7 +670,7 @@ func TestInvalidOptionalHeaderMagic(t *testing.T) {
 func TestImportedSymbolsNoPanicMissingOptionalHeader(t *testing.T) {
 	// https://golang.org/issue/30250
 	// ImportedSymbols shouldn't panic if optional headers is missing
-	data, err := ioutil.ReadFile("testdata/gcc-amd64-mingw-obj")
+	data, err := os.ReadFile("testdata/gcc-amd64-mingw-obj")
 	if err != nil {
 		t.Fatal(err)
 	}

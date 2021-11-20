@@ -5,6 +5,9 @@ import (
 	"fmt"
 )
 
+// OptionalHeader64Size size
+const OptionalHeader64Size = 240
+
 // PE import export table
 
 // ExportedSymbol exported

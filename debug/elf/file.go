@@ -8,14 +8,13 @@ package elf
 import (
 	"bytes"
 	"compress/zlib"
+	"debug/dwarf"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
-
-	"github.com/fcharlie/buna/debug/dwarf"
 )
 
 // seekStart, seekCurrent, seekEnd are copies of
@@ -51,13 +50,14 @@ type FileHeader struct {
 // A File represents an open ELF file.
 type File struct {
 	FileHeader
-	Sections      []*Section
-	Progs         []*Prog
+	Sections  []*Section
+	Progs     []*Prog
+	closer    io.Closer
+	gnuNeed   []verneed
+	gnuVersym []byte
+	// extension
 	OverlayOffset uint64
 	r             io.ReaderAt
-	closer        io.Closer
-	gnuNeed       []verneed
-	gnuVersym     []byte
 }
 
 // A SectionHeader represents a single ELF section header.
