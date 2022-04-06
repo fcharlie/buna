@@ -7,7 +7,7 @@ package pe
 import (
 	"bytes"
 	"debug/dwarf"
-	"internal/testenv"
+
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"testing"
 	"text/template"
+
+	"github.com/fcharlie/buna/debug/testenv"
 )
 
 type fileTest struct {
