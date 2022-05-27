@@ -1,4 +1,4 @@
-// +build !windows
+//go:build !windows
 
 package demangle
 
@@ -6,5 +6,5 @@ package demangle
 
 func MsvcFilter(name string) string {
 
-	return ""
+	return name
 }
