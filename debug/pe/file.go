@@ -356,7 +356,7 @@ func (f *File) ImportedSymbols() ([]string, error) {
 	var ds *Section
 	ds = nil
 	for _, s := range f.Sections {
-		if s.VirtualAddress <= idd.VirtualAddress && idd.VirtualAddress < s.VirtualAddress+s.VirtualSize {
+		if s.VirtualAddress <= idd.VirtualAddress && idd.VirtualAddress-s.VirtualAddress < s.VirtualSize {
 			ds = s
 			break
 		}
