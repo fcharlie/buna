@@ -2,7 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package pe implements access to PE (Microsoft Windows Portable Executable) files.
+/*
+Package pe implements access to PE (Microsoft Windows Portable Executable) files.
+
+# Security
+
+This package is not designed to be hardened against adversarial inputs, and is
+outside the scope of https://go.dev/security/policy. In particular, only basic
+validation is done when parsing object files. As such, care should be taken when
+parsing untrusted inputs, as parsing malformed files may consume significant
+resources, or cause panics.
+*/
 package pe
 
 import (
@@ -10,6 +20,7 @@ import (
 	"compress/zlib"
 	"debug/dwarf"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,15 +33,14 @@ const seekStart = 0
 // A File represents an open PE file.
 type File struct {
 	FileHeader
-	OptionalHeader interface{} // of type *OptionalHeader32 or *OptionalHeader64
+	OptionalHeader any // of type *OptionalHeader32 or *OptionalHeader64
 	Sections       []*Section
 	Symbols        []*Symbol    // COFF symbols with auxiliary symbol records removed
 	COFFSymbols    []COFFSymbol // all COFF symbols (including auxiliary symbol records)
 	StringTable    StringTable
 	OverlayOffset  int64
-
-	r      io.ReaderAt
-	closer io.Closer
+	originalReader io.ReaderAt
+	closer         io.Closer
 }
 
 // Open opens the named file using os.Open and prepares it for use as a PE binary.
@@ -65,7 +75,7 @@ func (f *File) Close() error {
 // NewFile creates a new File for accessing a PE binary in an underlying reader.
 func NewFile(r io.ReaderAt) (*File, error) {
 	f := new(File)
-	f.r = r
+	f.originalReader = r
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
 	var dosheader [96]byte
@@ -93,6 +103,9 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		IMAGE_FILE_MACHINE_ARM64,
 		IMAGE_FILE_MACHINE_ARMNT,
 		IMAGE_FILE_MACHINE_I386,
+		IMAGE_FILE_MACHINE_RISCV32,
+		IMAGE_FILE_MACHINE_RISCV64,
+		IMAGE_FILE_MACHINE_RISCV128,
 		IMAGE_FILE_MACHINE_UNKNOWN:
 		// ok
 	default:
@@ -158,7 +171,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		}
 		r2 := r
 		if sh.PointerToRawData == 0 { // .bss must have all 0s
-			r2 = zeroReaderAt{}
+			r2 = &nobitsSectionReader{}
 		}
 		s.sr = io.NewSectionReader(r2, int64(s.SectionHeader.Offset), int64(s.SectionHeader.Size))
 		s.ReaderAt = s.sr
@@ -175,15 +188,10 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	return f, nil
 }
 
-// zeroReaderAt is ReaderAt that reads 0s.
-type zeroReaderAt struct{}
+type nobitsSectionReader struct{}
 
-// ReadAt writes len(p) 0s into p.
-func (w zeroReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
-	for i := range p {
-		p[i] = 0
-	}
-	return len(p), nil
+func (*nobitsSectionReader) ReadAt(p []byte, off int64) (n int, err error) {
+	return 0, errors.New("unexpected read from section with uninitialized data")
 }
 
 // getString extracts a string from symbol string table.
@@ -356,6 +364,12 @@ func (f *File) ImportedSymbols() ([]string, error) {
 	var ds *Section
 	ds = nil
 	for _, s := range f.Sections {
+		if s.Offset == 0 {
+			continue
+		}
+		// We are using distance between s.VirtualAddress and idd.VirtualAddress
+		// to avoid potential overflow of uint32 caused by addition of s.VirtualSize
+		// to s.VirtualAddress.
 		if s.VirtualAddress <= idd.VirtualAddress && idd.VirtualAddress-s.VirtualAddress < s.VirtualSize {
 			ds = s
 			break
@@ -454,11 +468,11 @@ func (e *FormatError) Error() string {
 	return "unknown error"
 }
 
-// readOptionalHeader accepts a io.ReadSeeker pointing to optional header in the PE file
+// readOptionalHeader accepts an io.ReadSeeker pointing to optional header in the PE file
 // and its size as seen in the file header.
 // It parses the given size of bytes and returns optional header. It infers whether the
 // bytes being parsed refer to 32 bit or 64 bit version of optional header.
-func readOptionalHeader(r io.ReadSeeker, sz uint16) (interface{}, error) {
+func readOptionalHeader(r io.ReadSeeker, sz uint16) (any, error) {
 	// If optional header size is 0, return empty optional header.
 	if sz == 0 {
 		return nil, nil
@@ -479,7 +493,7 @@ func readOptionalHeader(r io.ReadSeeker, sz uint16) (interface{}, error) {
 
 	// read reads from io.ReadSeeke, r, into data.
 	var err error
-	read := func(data interface{}) bool {
+	read := func(data any) bool {
 		err = binary.Read(r, binary.LittleEndian, data)
 		return err == nil
 	}
@@ -602,12 +616,12 @@ func readOptionalHeader(r io.ReadSeeker, sz uint16) (interface{}, error) {
 	}
 }
 
-// readDataDirectories accepts a io.ReadSeeker pointing to data directories in the PE file,
+// readDataDirectories accepts an io.ReadSeeker pointing to data directories in the PE file,
 // its size and number of data directories as seen in optional header.
 // It parses the given size of bytes and returns given number of data directories.
 func readDataDirectories(r io.ReadSeeker, sz uint16, n uint32) ([]DataDirectory, error) {
-	ddSz := binary.Size(DataDirectory{})
-	if uint32(sz) != n*uint32(ddSz) {
+	ddSz := uint64(binary.Size(DataDirectory{}))
+	if uint64(sz) != uint64(n)*ddSz {
 		return nil, fmt.Errorf("size of data directories(%d) is inconsistent with number of data directories(%d)", sz, n)
 	}
 

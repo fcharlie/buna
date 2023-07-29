@@ -13,16 +13,16 @@ var (
 
 // NewOverlayReader create a new ReaderAt for read PE overlay data
 func (f *File) NewOverlayReader() (io.ReaderAt, error) {
-	if f.r == nil {
+	if f.originalReader == nil {
 		return nil, errors.New("pe: file reader is nil")
 	}
-	return io.NewSectionReader(f.r, f.OverlayOffset, 1<<63-1), nil
+	return io.NewSectionReader(f.originalReader, f.OverlayOffset, 1<<63-1), nil
 }
 
 // Overlay returns the overlay of the PE file (i.e. any optional bytes directly
 // succeeding the image).
 func (f *File) Overlay() ([]byte, error) {
-	sr, ok := f.r.(io.Seeker)
+	sr, ok := f.originalReader.(io.Seeker)
 	if !ok {
 		return nil, errors.New("pe: reader not a io.Seeker")
 	}
@@ -32,7 +32,7 @@ func (f *File) Overlay() ([]byte, error) {
 	}
 	overlayLen := overlayEnd - f.OverlayOffset
 	overlay := make([]byte, overlayLen)
-	ser := io.NewSectionReader(f.r, f.OverlayOffset, overlayLen)
+	ser := io.NewSectionReader(f.originalReader, f.OverlayOffset, overlayLen)
 	if _, err := io.ReadFull(ser, overlay); err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (f *File) Overlay() ([]byte, error) {
 }
 
 func (f *File) OverlayLength() int64 {
-	sr, ok := f.r.(io.Seeker)
+	sr, ok := f.originalReader.(io.Seeker)
 	if !ok {
 		return 0
 	}

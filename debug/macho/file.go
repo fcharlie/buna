@@ -2,7 +2,17 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package macho implements access to Mach-O object files.
+/*
+Package macho implements access to Mach-O object files.
+
+# Security
+
+This package is not designed to be hardened against adversarial inputs, and is
+outside the scope of https://go.dev/security/policy. In particular, only basic
+validation is done when parsing object files. As such, care should be taken when
+parsing untrusted inputs, as parsing malformed files may consume significant
+resources, or cause panics.
+*/
 package macho
 
 // High level access to low level data structures.
@@ -10,6 +20,7 @@ package macho
 import (
 	"bytes"
 	"compress/zlib"
+	"debug/dwarf"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -17,12 +28,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/fcharlie/buna/debug/dwarf"
-)
-
-// error
-var (
-	ErrNoOverlayFound = errors.New("macho: not have overlay data")
+	"github.com/fcharlie/buna/debug/saferio"
 )
 
 // A File represents an open Mach-O file.
@@ -32,10 +38,10 @@ type File struct {
 	Loads     []Load
 	Sections  []*Section
 
-	Symtab        *Symtab
-	Dysymtab      *Dysymtab
-	OverlayOffset uint64
-	r             io.ReaderAt
+	Symtab         *Symtab
+	Dysymtab       *Dysymtab
+	OverlayOffset  uint64
+	originalReader io.ReaderAt
 
 	closer io.Closer
 }
@@ -82,12 +88,7 @@ type Segment struct {
 
 // Data reads and returns the contents of the segment.
 func (s *Segment) Data() ([]byte, error) {
-	dat := make([]byte, s.sr.Size())
-	n, err := s.sr.ReadAt(dat, 0)
-	if n == len(dat) {
-		err = nil
-	}
-	return dat[0:n], err
+	return saferio.ReadDataAt(s.sr, s.Filesz, 0)
 }
 
 // Open returns a new ReadSeeker reading the segment.
@@ -135,12 +136,7 @@ type Section struct {
 
 // Data reads and returns the contents of the Mach-O section.
 func (s *Section) Data() ([]byte, error) {
-	dat := make([]byte, s.sr.Size())
-	n, err := s.sr.ReadAt(dat, 0)
-	if n == len(dat) {
-		err = nil
-	}
-	return dat[0:n], err
+	return saferio.ReadDataAt(s.sr, s.Size, 0)
 }
 
 // Open returns a new ReadSeeker reading the Mach-O section.
@@ -193,7 +189,7 @@ type Symbol struct {
 type FormatError struct {
 	off int64
 	msg string
-	val interface{}
+	val any
 }
 
 func (e *FormatError) Error() string {
@@ -236,7 +232,7 @@ func (f *File) Close() error {
 // The Mach-O binary is expected to start at position 0 in the ReaderAt.
 func NewFile(r io.ReaderAt) (*File, error) {
 	f := new(File)
-	f.r = r
+	f.originalReader = r
 	sr := io.NewSectionReader(r, 0, 1<<63-1)
 
 	// Read and decode Mach magic to determine byte order, size.
@@ -268,13 +264,17 @@ func NewFile(r io.ReaderAt) (*File, error) {
 	if f.Magic == Magic64 {
 		offset = fileHeaderSize64
 	}
-	dat := make([]byte, f.Cmdsz)
-	if _, err := r.ReadAt(dat, offset); err != nil {
+	dat, err := saferio.ReadDataAt(r, uint64(f.Cmdsz), offset)
+	if err != nil {
 		return nil, err
 	}
-	f.Loads = make([]Load, f.Ncmd)
+	c := saferio.SliceCap((*Load)(nil), uint64(f.Ncmd))
+	if c < 0 {
+		return nil, &FormatError{offset, "too many load commands", nil}
+	}
+	f.Loads = make([]Load, 0, c)
 	bo := f.ByteOrder
-	for i := range f.Loads {
+	for i := uint32(0); i < f.Ncmd; i++ {
 		// Each load command begins with uint32 command and length.
 		if len(dat) < 8 {
 			return nil, &FormatError{offset, "command block too small", nil}
@@ -289,7 +289,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 		var s *Segment
 		switch cmd {
 		default:
-			f.Loads[i] = LoadBytes(cmddat)
+			f.Loads = append(f.Loads, LoadBytes(cmddat))
 
 		case LoadCmdRpath:
 			var hdr RpathCmd
@@ -303,7 +303,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			}
 			l.Path = cstring(cmddat[hdr.Path:])
 			l.LoadBytes = LoadBytes(cmddat)
-			f.Loads[i] = l
+			f.Loads = append(f.Loads, l)
 
 		case LoadCmdDylib:
 			var hdr DylibCmd
@@ -320,7 +320,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			l.CurrentVersion = hdr.CurrentVersion
 			l.CompatVersion = hdr.CompatVersion
 			l.LoadBytes = LoadBytes(cmddat)
-			f.Loads[i] = l
+			f.Loads = append(f.Loads, l)
 
 		case LoadCmdSymtab:
 			var hdr SymtabCmd
@@ -328,8 +328,8 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			if err := binary.Read(b, bo, &hdr); err != nil {
 				return nil, err
 			}
-			strtab := make([]byte, hdr.Strsize)
-			if _, err := r.ReadAt(strtab, int64(hdr.Stroff)); err != nil {
+			strtab, err := saferio.ReadDataAt(r, uint64(hdr.Strsize), int64(hdr.Stroff))
+			if err != nil {
 				return nil, err
 			}
 			var symsz int
@@ -338,15 +338,15 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			} else {
 				symsz = 12
 			}
-			symdat := make([]byte, int(hdr.Nsyms)*symsz)
-			if _, err := r.ReadAt(symdat, int64(hdr.Symoff)); err != nil {
+			symdat, err := saferio.ReadDataAt(r, uint64(hdr.Nsyms)*uint64(symsz), int64(hdr.Symoff))
+			if err != nil {
 				return nil, err
 			}
 			st, err := f.parseSymtab(symdat, strtab, cmddat, &hdr, offset)
 			if err != nil {
 				return nil, err
 			}
-			f.Loads[i] = st
+			f.Loads = append(f.Loads, st)
 			f.Symtab = st
 
 		case LoadCmdDysymtab:
@@ -355,7 +355,9 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			if err := binary.Read(b, bo, &hdr); err != nil {
 				return nil, err
 			}
-			if hdr.Iundefsym > uint32(len(f.Symtab.Syms)) {
+			if f.Symtab == nil {
+				return nil, &FormatError{offset, "dynamic symbol table seen before any ordinary symbol table", nil}
+			} else if hdr.Iundefsym > uint32(len(f.Symtab.Syms)) {
 				return nil, &FormatError{offset, fmt.Sprintf(
 					"undefined symbols index in dynamic symbol table command is greater than symbol table length (%d > %d)",
 					hdr.Iundefsym, len(f.Symtab.Syms)), nil}
@@ -364,8 +366,8 @@ func NewFile(r io.ReaderAt) (*File, error) {
 					"number of undefined symbols after index in dynamic symbol table command is greater than symbol table length (%d > %d)",
 					hdr.Iundefsym+hdr.Nundefsym, len(f.Symtab.Syms)), nil}
 			}
-			dat := make([]byte, hdr.Nindirectsyms*4)
-			if _, err := r.ReadAt(dat, int64(hdr.Indirectsymoff)); err != nil {
+			dat, err := saferio.ReadDataAt(r, uint64(hdr.Nindirectsyms)*4, int64(hdr.Indirectsymoff))
+			if err != nil {
 				return nil, err
 			}
 			x := make([]uint32, hdr.Nindirectsyms)
@@ -376,7 +378,7 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			st.LoadBytes = LoadBytes(cmddat)
 			st.DysymtabCmd = hdr
 			st.IndirectSyms = x
-			f.Loads[i] = st
+			f.Loads = append(f.Loads, st)
 			f.Dysymtab = st
 
 		case LoadCmdSegment:
@@ -394,14 +396,11 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			s.Memsz = uint64(seg32.Memsz)
 			s.Offset = uint64(seg32.Offset)
 			s.Filesz = uint64(seg32.Filesz)
-			if sectionEnd := uint64(s.Offset) + s.Filesz; sectionEnd > f.OverlayOffset {
-				f.OverlayOffset = sectionEnd
-			}
 			s.Maxprot = seg32.Maxprot
 			s.Prot = seg32.Prot
 			s.Nsect = seg32.Nsect
 			s.Flag = seg32.Flag
-			f.Loads[i] = s
+			f.Loads = append(f.Loads, s)
 			for i := 0; i < int(s.Nsect); i++ {
 				var sh32 Section32
 				if err := binary.Read(b, bo, &sh32); err != nil {
@@ -437,14 +436,11 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			s.Memsz = seg64.Memsz
 			s.Offset = seg64.Offset
 			s.Filesz = seg64.Filesz
-			if sectionEnd := uint64(s.Offset) + s.Filesz; sectionEnd > f.OverlayOffset {
-				f.OverlayOffset = sectionEnd
-			}
 			s.Maxprot = seg64.Maxprot
 			s.Prot = seg64.Prot
 			s.Nsect = seg64.Nsect
 			s.Flag = seg64.Flag
-			f.Loads[i] = s
+			f.Loads = append(f.Loads, s)
 			for i := 0; i < int(s.Nsect); i++ {
 				var sh64 Section64
 				if err := binary.Read(b, bo, &sh64); err != nil {
@@ -466,6 +462,12 @@ func NewFile(r io.ReaderAt) (*File, error) {
 			}
 		}
 		if s != nil {
+			if int64(s.Offset) < 0 {
+				return nil, &FormatError{offset, "invalid section offset", s.Offset}
+			}
+			if int64(s.Filesz) < 0 {
+				return nil, &FormatError{offset, "invalid section file size", s.Filesz}
+			}
 			s.sr = io.NewSectionReader(r, int64(s.Offset), int64(s.Filesz))
 			s.ReaderAt = s.sr
 		}
@@ -480,9 +482,13 @@ func NewFile(r io.ReaderAt) (*File, error) {
 
 func (f *File) parseSymtab(symdat, strtab, cmddat []byte, hdr *SymtabCmd, offset int64) (*Symtab, error) {
 	bo := f.ByteOrder
-	symtab := make([]Symbol, hdr.Nsyms)
+	c := saferio.SliceCap((*Symbol)(nil), uint64(hdr.Nsyms))
+	if c < 0 {
+		return nil, &FormatError{offset, "too many symbols", nil}
+	}
+	symtab := make([]Symbol, 0, c)
 	b := bytes.NewReader(symdat)
-	for i := range symtab {
+	for i := 0; i < int(hdr.Nsyms); i++ {
 		var n Nlist64
 		if f.Magic == Magic64 {
 			if err := binary.Read(b, bo, &n); err != nil {
@@ -499,7 +505,6 @@ func (f *File) parseSymtab(symdat, strtab, cmddat []byte, hdr *SymtabCmd, offset
 			n.Desc = n32.Desc
 			n.Value = uint64(n32.Value)
 		}
-		sym := &symtab[i]
 		if n.Name >= uint32(len(strtab)) {
 			return nil, &FormatError{offset, "invalid name in symbol table", n.Name}
 		}
@@ -508,11 +513,13 @@ func (f *File) parseSymtab(symdat, strtab, cmddat []byte, hdr *SymtabCmd, offset
 		if strings.Contains(name, ".") && name[0] == '_' {
 			name = name[1:]
 		}
-		sym.Name = name
-		sym.Type = n.Type
-		sym.Sect = n.Sect
-		sym.Desc = n.Desc
-		sym.Value = n.Value
+		symtab = append(symtab, Symbol{
+			Name:  name,
+			Type:  n.Type,
+			Sect:  n.Sect,
+			Desc:  n.Desc,
+			Value: n.Value,
+		})
 	}
 	st := new(Symtab)
 	st.LoadBytes = LoadBytes(cmddat)
@@ -531,8 +538,8 @@ func (f *File) pushSection(sh *Section, r io.ReaderAt) error {
 	sh.ReaderAt = sh.sr
 
 	if sh.Nreloc > 0 {
-		reldat := make([]byte, int(sh.Nreloc)*8)
-		if _, err := r.ReadAt(reldat, int64(sh.Reloff)); err != nil {
+		reldat, err := saferio.ReadDataAt(r, uint64(sh.Nreloc)*8, int64(sh.Reloff))
+		if err != nil {
 			return err
 		}
 		b := bytes.NewReader(reldat)
@@ -730,21 +737,26 @@ func (f *File) ImportedLibraries() ([]string, error) {
 	return all, nil
 }
 
+// error
+var (
+	ErrNoOverlayFound = errors.New("macho: not have overlay data")
+)
+
 // NewOverlayReader create a new ReaderAt for read Mach-O overlay data
 func (f *File) NewOverlayReader() (io.ReaderAt, error) {
-	if f.r == nil {
+	if f.originalReader == nil {
 		return nil, errors.New("macho: file reader is nil")
 	}
 	if f.OverlayOffset == 0 {
 		return nil, ErrNoOverlayFound
 	}
-	return io.NewSectionReader(f.r, int64(f.OverlayOffset), 1<<63-1), nil
+	return io.NewSectionReader(f.originalReader, int64(f.OverlayOffset), 1<<63-1), nil
 }
 
 // Overlay returns the overlay of the Mach-O file (i.e. any optional bytes directly
 // succeeding the image).
 func (f *File) Overlay() ([]byte, error) {
-	sr, ok := f.r.(io.Seeker)
+	sr, ok := f.originalReader.(io.Seeker)
 	if !ok {
 		return nil, errors.New("macho: reader not a io.Seeker")
 	}
@@ -754,7 +766,7 @@ func (f *File) Overlay() ([]byte, error) {
 	}
 	overlayLen := overlayEnd - int64(f.OverlayOffset)
 	overlay := make([]byte, overlayLen)
-	ser := io.NewSectionReader(f.r, int64(f.OverlayOffset), overlayLen)
+	ser := io.NewSectionReader(f.originalReader, int64(f.OverlayOffset), overlayLen)
 	if _, err := io.ReadFull(ser, overlay); err != nil {
 		return nil, err
 	}
